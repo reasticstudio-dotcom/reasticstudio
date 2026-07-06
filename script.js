@@ -6,19 +6,8 @@ let activeImg = null;
 let isDragging = false;
 let startX, startY, initX, initY;
 
-// KONFIGURASI PRESISI 6 SLOT (Pas di tengah frame hati)
-// Koordinat ini disesuaikan untuk template 1200x1800 agar simetris kiri-kanan & atas-bawah
-const SLOT_CONFIGS = [
-    { left: 160, top: 280, width: 380, height: 340 }, // Kiri Atas
-    { left: 660, top: 280, width: 380, height: 340 }, // Kanan Atas
-    { left: 160, top: 730, width: 380, height: 340 }, // Kiri Tengah
-    { left: 660, top: 730, width: 380, height: 340 }, // Kanan Tengah
-    { left: 160, top: 1180, width: 380, height: 340 }, // Kiri Bawah
-    { left: 660, top: 1180, width: 380, height: 340 }  // Kanan Bawah
-];
-
-// SCAN TEMPLATE ENGINE
-document.getElementById('magicScan').addEventListener('change', function(e) {
+// STEP 1: DETEKSI TITIK KOTAK DARI LAYOUT HITAM
+document.getElementById('layoutScan').addEventListener('change', function(e) {
     const file = e.target.files[0];
     if (!file) return;
 
@@ -26,34 +15,102 @@ document.getElementById('magicScan').addEventListener('change', function(e) {
     const img = new Image();
 
     img.onload = () => {
-        photoContainer.innerHTML = '';
-        templateOverlay.src = img.src;
-        templateOverlay.style.display = 'block';
-        
-        // Generate slot foto berdasarkan preset presisi, bukan deteksi piksel yang tidak stabil
-        generatePhotoSlots();
+        photoContainer.innerHTML = ''; // Reset slot sebelumnya
+        detectBlackBoxes(img);
         URL.revokeObjectURL(url);
+        alert("Layout berhasil dipindai! Silakan upload Template Overlay sekarang.");
     };
-
     img.src = url;
 });
 
-function generatePhotoSlots() {
-    SLOT_CONFIGS.forEach((config) => {
-        createPhotoBox(config.left, config.top, config.width, config.height);
-    });
+// STEP 2: PASANG TEMPLATE CANTIK DI ATASNYA
+document.getElementById('magicScan').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const url = URL.createObjectURL(file);
+    templateOverlay.src = url;
+    templateOverlay.style.display = 'block';
+});
+
+// HIGH-PRECISION GRID DETECTOR (Membaca file hitam polos sebagai acuan kotak foto)
+function detectBlackBoxes(imgSource) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = 1200;  // Paksa ke resolusi kanvas standar (4R)
+    canvas.height = 1800;
+    
+    ctx.drawImage(imgSource, 0, 0, canvas.width, canvas.height);
+    const WIDTH = canvas.width;
+    const HEIGHT = canvas.height;
+
+    const imgData = ctx.getImageData(0, 0, WIDTH, HEIGHT);
+    const pixelData = imgData.data;
+    const visited = new Uint8Array(WIDTH * HEIGHT);
+    
+    const step = 4; // Menghemat pemrosesan performa
+
+    for (let y = 0; y < HEIGHT; y += step) {
+        for (let x = 0; x < WIDTH; x += step) {
+            const idx = (y * WIDTH + x) * 4;
+            const r = pixelData[idx];
+            const g = pixelData[idx+1];
+            const b = pixelData[idx+2];
+            const a = pixelData[idx+3];
+            
+            // Jika mendeteksi warna gelap/hitam (R,G,B < 50 dan tidak transparan)
+            if (r < 50 && g < 50 && b < 50 && a > 200 && !visited[y * WIDTH + x]) {
+                
+                let xMin = x, xMax = x;
+                let yMin = y, yMax = y;
+                let queue = [[x, y]];
+                visited[y * WIDTH + x] = 1;
+                
+                while (queue.length > 0) {
+                    let [cx, cy] = queue.shift();
+                    
+                    if (cx < xMin) xMin = cx;
+                    if (cx > xMax) xMax = cx;
+                    if (cy < yMin) yMin = cy;
+                    if (cy > yMax) yMax = cy;
+                    
+                    const neighbors = [
+                        [cx + 8, cy], [cx - 8, cy], [cx, cy + 8], [cx, cy - 8]
+                    ];
+                    
+                    for (let i = 0; i < neighbors.length; i++) {
+                        const [nx, ny] = neighbors[i];
+                        if (nx >= 0 && nx < WIDTH && ny >= 0 && ny < HEIGHT) {
+                            const nIdx = ny * WIDTH + nx;
+                            if (!visited[nIdx]) {
+                                const nPix = nIdx * 4;
+                                if (pixelData[nPix] < 50 && pixelData[nPix+3] > 200) {
+                                    visited[nIdx] = 1;
+                                    queue.push([nx, ny]);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                const boxWidth = xMax - xMin;
+                const boxHeight = yMax - yMin;
+                
+                // Validasi ukuran box standar photobox
+                if (boxWidth > 100 && boxHeight > 100) {
+                    // Berikan sedikit padding minus (gapFix) agar tepi foto agak masuk ke dalam frame overlay
+                    const gapFix = 4;
+                    createPhotoBox(xMin - gapFix, yMin - gapFix, boxWidth + (gapFix * 2), boxHeight + (gapFix * 2));
+                }
+            }
+        }
+    }
 }
 
 function createPhotoBox(x, y, w, h) {
     const box = document.createElement('div');
     box.className = 'photo-box';
-    
-    box.style.cssText = `
-        left: ${x}px; 
-        top: ${y}px; 
-        width: ${w}px; 
-        height: ${h}px;
-    `;
+    box.style.cssText = `left: ${x}px; top: ${y}px; width: ${w}px; height: ${h}px;`;
     
     box.onclick = (e) => {
         if (e.target.classList.contains('remove-photo-btn')) return;
@@ -76,14 +133,12 @@ function triggerImageUpload(box) {
         reader.onload = (ev) => {
             box.innerHTML = '';
             
-            // Wrapper untuk centering gambar di dalam box
             const imgWrapper = document.createElement('div');
             imgWrapper.className = 'img-wrapper';
 
             const img = document.createElement('img');
             img.src = ev.target.result;
 
-            // Default values untuk manipulasi foto
             img.dataset.scale = 1; 
             img.dataset.bright = 100; 
             img.dataset.contrast = 100; 
@@ -105,7 +160,6 @@ function triggerImageUpload(box) {
             };
             box.appendChild(btn);
             
-            // Tunggu image load untuk kalkulasi centering sempurna
             img.onload = () => {
                 centerImageInBox(img, box);
                 selectPhoto(img);
@@ -117,15 +171,9 @@ function triggerImageUpload(box) {
     input.click();
 }
 
-// Fungsi agar foto otomatis tercrop tengah & memenuhi box (Object-fit Cover style)
 function centerImageInBox(img, box) {
-    const boxWidth = box.clientWidth;
-    const boxHeight = box.clientHeight;
-    const imgWidth = img.naturalWidth;
-    const imgHeight = img.naturalHeight;
-
-    const boxRatio = boxWidth / boxHeight;
-    const imgRatio = imgWidth / imgHeight;
+    const boxRatio = box.clientWidth / box.clientHeight;
+    const imgRatio = img.naturalWidth / img.naturalHeight;
 
     if (imgRatio > boxRatio) {
         img.style.height = '100%';
@@ -189,13 +237,12 @@ window.addEventListener('mousemove', (e) => {
 
 window.addEventListener('mouseup', () => isDragging = false);
 
-// PRINT ENGINE
+// PRINT & DOWNLOAD ENGINE
 document.getElementById('printBtn').onclick = () => {
     document.querySelectorAll('.photo-box').forEach(b => b.style.outline = 'none');
     setTimeout(() => { window.print(); }, 500);
 };
 
-// DOWNLOAD ENGINE
 document.getElementById('downloadBtn').onclick = () => {
     const btn = document.getElementById('downloadBtn');
     btn.innerText = 'PROCESSING...';
@@ -204,7 +251,7 @@ document.getElementById('downloadBtn').onclick = () => {
     document.querySelectorAll('.photo-box').forEach(b => b.style.outline = 'none');
 
     const captureArea = document.getElementById("captureArea");
-    const ratio = templateOverlay.naturalWidth / captureArea.clientWidth;
+    const ratio = 1200 / captureArea.clientWidth;
 
     html2canvas(captureArea, {
         scale: ratio,
