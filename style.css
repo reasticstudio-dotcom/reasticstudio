@@ -91,10 +91,10 @@ body {
     display: none; 
 }
 
-.photo-box { 
+..photo-box { 
     position: absolute; 
     overflow: hidden; 
-    background: #000000; /* Latar slot kosong warna hitam polos */
+    background: transparent; /* PERBAIKAN: Diubah jadi transparan agar tidak memunculkan garis hitam */
     cursor: move;
     display: flex;
     align-items: center;
