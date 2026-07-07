@@ -97,8 +97,9 @@ function detectTransparentAreas(imgSource) {
                 
                 // Validasi ukuran: Abaikan noise kecil, buat slot jika ukuran ideal
                 if (boxWidth > 100 && boxHeight > 100) {
-                    // Berikan gapFix ekstra agar tepi kotak masuk sedikit ke dalam frame (tidak bocor putih)
-                    const gapFix = 8;
+                    // PERBAIKAN: gapFix dinaikkan ke 35 agar ukuran kotak foto 
+                    // sengaja dibuat lebih besar dan mengunci area lengkungan luar hati secara aman.
+                    const gapFix = 35;
                     createPhotoBox(xMin - gapFix, yMin - gapFix, boxWidth + (gapFix * 2), boxHeight + (gapFix * 2));
                 }
             }
